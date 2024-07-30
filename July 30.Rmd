@@ -1,0 +1,7 @@
+```{r}
+new_bb <- read.csv("/Users/jackholland/Downloads/Togetherhood CSVs/AVL_BB_Edited.csv")
+View(new_bb)
+```
+
+
+
