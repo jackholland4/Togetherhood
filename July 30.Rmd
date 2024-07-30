@@ -6,12 +6,15 @@ library(stringr)
 library(stringdist)
 library(plotly)
 library(scales)
+library(lubridate)
 ```
 
 ```{r}
 new_bb <- read.csv("/Users/jackholland/Downloads/Togetherhood CSVs/AVL_BB_Edited.csv")
 View(new_bb)
 ```
+
+
 
 ##Getting Ready for MoM, YoY comparisons
 ```{r}
@@ -23,16 +26,19 @@ View(new_bb)
 ```
 
 ```{r}
-bb_2022 <- new_bb |>
-  filter(str_detect(Date, "2022"))
+bb_years <- new_bb %>%
+  mutate(year = year(Date)) |>
+  mutate(year = as.factor(year)) |>
+  filter(!Partner == "")
 
+bb_2022 <- bb_years |>
+  filter(year == 2022)
 
-bb_2023 <- new_bb |>
-  filter(str_detect(Date, "2023"))
+bb_2023 <- bb_years |>
+  filter(year == 2023)
 
-
-bb_2024 <- new_bb |>
-  filter(str_detect(Date, "2024"))
+bb_2024 <- bb_years |>
+  filter(year == 2024)
 ```
 
 ##Revenue by Partner Type YoY
@@ -58,10 +64,10 @@ high_grossing_types <- partner_type_revenue_2022 |>
 ggplot(high_grossing_types, aes(x = reorder(partner_type, -Total_Revenue), y = Total_Revenue, fill = Revenue_Per_Session)) +
   geom_bar(stat = "identity") +
   geom_text(aes(label = comma(Total_Revenue)), vjust = -0.3, size = 3) +  # Add labels above bars
-  scale_fill_gradient(low = "goldenrod", high = "goldenrod4", name = "Revenue per Session (USD)") +
+  scale_fill_gradient(low = "seagreen1", high = "seagreen4", name = "Revenue per Session (USD)") +
   scale_y_continuous(labels = comma) +  # Ensure y-axis labels are formatted with commas
   theme_minimal() +
-  labs(title = "Revenue by Partner Type (2022)",
+  labs(title = "Revenue by Partner Type (Sep-Dec 2022)",
        x = "Type",
        y = "Revenue") +
     theme(axis.text.x = element_text(angle = 45, hjust = 1))
@@ -88,7 +94,7 @@ high_grossing_types <- partner_type_revenue_2023 |>
 ggplot(high_grossing_types, aes(x = reorder(partner_type, -Total_Revenue), y = Total_Revenue, fill = Revenue_Per_Session)) +
   geom_bar(stat = "identity") +
   geom_text(aes(label = comma(Total_Revenue)), vjust = -0.3, size = 3) +  # Add labels above bars
-  scale_fill_gradient(low = "goldenrod", high = "goldenrod4", name = "Revenue per Session (USD)") +
+  scale_fill_gradient(low = "steelblue1", high = "steelblue4", name = "Revenue per Session (USD)") +
   scale_y_continuous(labels = comma) +  # Ensure y-axis labels are formatted with commas
   theme_minimal() +
   labs(title = "Revenue by Partner Type (2023)",
@@ -118,19 +124,131 @@ high_grossing_types <- partner_type_revenue_2024 |>
 ggplot(high_grossing_types, aes(x = reorder(partner_type, -Total_Revenue), y = Total_Revenue, fill = Revenue_Per_Session)) +
   geom_bar(stat = "identity") +
   geom_text(aes(label = comma(Total_Revenue)), vjust = -0.3, size = 3) +  # Add labels above bars
-  scale_fill_gradient(low = "goldenrod", high = "goldenrod4", name = "Revenue per Session (USD)") +
+  scale_fill_gradient(low = "slateblue1", high = "slateblue4", name = "Revenue per Session (USD)") +
   scale_y_continuous(labels = comma) +  # Ensure y-axis labels are formatted with commas
   theme_minimal() +
-  labs(title = "Revenue by Partner Type (2022)",
+  labs(title = "Revenue by Partner Type (Jan-Jun 2024)",
        x = "Type",
        y = "Revenue") +
     theme(axis.text.x = element_text(angle = 45, hjust = 1))
 ```
 ```{r}
+bb_years <- bb_years %>%
+  mutate(year = as.factor(year))
 
+partner_type_revenue_combined <- bb_years |>
+  group_by(partner_type, year) |>
+  summarise(
+    Total_Revenue = sum(Revenue, na.rm = TRUE),
+    Total_Sessions = n()
+  ) |>
+  mutate(
+    Revenue_Per_Session = Total_Revenue / Total_Sessions
+  ) |>
+  ungroup()
+
+total_revenue_per_partner <- partner_type_revenue_combined |>
+  group_by(partner_type) |>
+  summarise(Total_Revenue_All_Years = sum(Total_Revenue))
+
+yearly_totals <- partner_type_revenue_combined %>%
+  group_by(year) %>%
+  summarise(Yearly_Total_Revenue = sum(Total_Revenue))
+
+partner_type_revenue_combined <- partner_type_revenue_combined %>%
+  left_join(yearly_totals, by = "year") %>%
+  mutate(Percentage = Total_Revenue / Yearly_Total_Revenue * 100)
+
+total_revenue_per_year <- partner_type_revenue_combined %>%
+  group_by(year) %>%
+  summarise(Total_Revenue_All_Years = sum(Total_Revenue))
+
+
+ggplot(partner_type_revenue_combined, aes(fill = reorder(partner_type, -Total_Revenue), y = Total_Revenue, x = year)) + 
+  geom_bar(position = "stack", stat = "identity") +
+  labs(title = "Revenue by Partner Type and Year",
+       subtitle = expression(italic("Note: 2022 and 2024 Data Incomplete")),
+       x = "Year",
+       y = "Total Revenue",
+       fill = "Partner Type") +
+  scale_y_continuous(labels = comma) +
+  geom_text(aes(label = sprintf("%.1f%%", Percentage)), position = position_stack(vjust = 0.5), size = 3.5, color = "white") +
+  theme_minimal()
 ```
 
 
+
 ##Revenue by Course Name and Partner Type (nested)
+
+```{r}
+# Summarize the revenue by Course.name and partner_type
+course_revenue_summary <- high_grossing_courses %>%
+  group_by(Course.name, partner_type) %>%
+  summarise(Total_Revenue = sum(Total_Revenue), .groups = 'drop') %>%
+  group_by(Course.name) %>%
+  summarise(Total_Revenue = sum(Total_Revenue), .groups = 'drop')
+
+# Get the ordered course names by total revenue
+ordered_courses <- course_revenue_summary %>%
+  arrange(desc(Total_Revenue)) %>%
+  pull(Course.name)
+
+# Plot with reordered x-axis
+ggplot(high_grossing_courses, aes(x = reorder(Course.name, -Total_Revenue, sum), y = Total_Revenue, fill = partner_type)) + 
+  geom_bar(position = "stack", stat = "identity") +
+  labs(title = "Top 20 Highest Grossing Courses - Partner Type Composition",
+       subtitle = expression(italic("September 2022 - June 2024")),
+       x = "Course Name",
+       y = "Total Revenue",
+       fill = "Partner Type") +
+  scale_y_continuous(labels = comma) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+```
+##Revenue based on Primary Category
+```{r}
+categories_revenue <- bb_years |>
+  group_by(category_primary, partner_type) |>
+  summarise(
+    Total_Revenue = sum(Revenue, na.rm = TRUE),
+    Total_Sessions = n()
+  ) |>
+  mutate(
+    Revenue_Per_Session = Total_Revenue / Total_Sessions
+  )
+
+high_grossing_categories <- categories_revenue |>
+  arrange(desc(Total_Revenue)) |>
+  head(20)
+```
+
+````{r}
+# Summarize the revenue by Category and partner_type
+category_revenue_summary <- high_grossing_categories %>%
+  group_by(category_primary, partner_type) %>%
+  summarise(Total_Revenue = sum(Total_Revenue), .groups = 'drop') %>%
+  group_by(category_primary) %>%
+  summarise(Total_Revenue = sum(Total_Revenue), .groups = 'drop')
+
+# Get the ordered course names by total revenue
+ordered_categories <- category_revenue_summary %>%
+  arrange(desc(Total_Revenue)) %>%
+  pull(category_primary)
+
+# Plot with reordered x-axis
+ggplot(high_grossing_categories, aes(x = reorder(category_primary, -Total_Revenue, sum), y = Total_Revenue, fill = partner_type)) + 
+  geom_bar(position = "stack", stat = "identity") +
+  labs(title = "Top 20 Highest Grossing Categories - Partner Type Composition",
+       subtitle = expression(italic("September 2022 - June 2024")),
+       x = "Primary Category",
+       y = "Total Revenue",
+       fill = "Partner Type") +
+  scale_y_continuous(labels = comma) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+
 ##Revenue disparities between flat priced courses and price per student fee courses
 
