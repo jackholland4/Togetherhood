@@ -250,4 +250,8 @@ ggplot(high_grossing_categories, aes(x = reorder(category_primary, -Total_Revenu
 ```
 
 ##Revenue disparities between flat priced courses and price per student fee courses
+```{r}
+
+```
+
 
