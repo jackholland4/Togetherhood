@@ -100,7 +100,7 @@ composite_group <- weekly_recent |>
             `Yes Sub Requests` = round(sum(`Sub?` == "Yes"),2),
             `Punctuality Score` = round(mean(Punctuality.Score),2),
             `Sub Score` = round(10*((`Total Sessions` - `Yes Sub Requests`)/(`Total Sessions`)),2),
-            `Composite Score` = round(((`Punctuality Score`*0.2) + (`Sub Score`*0.8)),2)
+            `Composite Score` = round(((`Punctuality Score`*0.67) + (`Sub Score`*0.33)),2)
 ) |>
     mutate(`Sessions Quartile` = ntile(`Total Sessions`, 4))  # Assign quintiles based on total sessions
 
