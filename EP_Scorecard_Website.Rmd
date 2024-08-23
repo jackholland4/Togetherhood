@@ -1,3 +1,8 @@
+---
+output:
+  pdf_document: default
+  html_document: default
+---
 ```{r, message=FALSE,echo=FALSE, warning=FALSE}
 library(dplyr)
 library(ggplot2)
@@ -62,13 +67,31 @@ View(weekly_recent)
 weekly_recent <- weekly_recent |>
   mutate(`Sessions Date` = as.Date(`Sessions Date`, format = "%m/%d/%Y"),
          Punctuality.Score = case_when(
-    Punctuality == "On Time" ~ 10,
-    Punctuality == "5-9 min late" ~ 5,
-    Punctuality == "10-29 min late" ~ 0,
-    Punctuality == "30+ min late" ~ -5,
-    TRUE ~ -10)) |>
+           Punctuality == "On Time" ~ 10,
+           Punctuality == "5-9 min late" ~ 5,
+           Punctuality == "10-29 min late" ~ 0,
+           Punctuality == "30+ min late" ~ -5,
+           TRUE ~ -10),
+         Issue.Instance = ifelse(Punctuality != "On Time", 
+                                 ave(Punctuality != "On Time", Partner, `Regular Instructor`, FUN = cumsum), 
+                                 NA)) |>
   filter(`Regular Instructor` != "#N/A" & `Regular Instructor` != "")
+
+View(weekly_recent)
 ```
+
+```{r}
+weekly_recent <- weekly_recent |>
+  mutate(punctuality.weighted = ifelse(
+    is.na(Issue.Instance), 
+    Punctuality.Score, 
+    Punctuality.Score - 5 * Issue.Instance
+  ))
+
+View(weekly_recent)
+```
+
+
 
 ```{r, message=FALSE,echo=FALSE, warning=FALSE}
 weekly_recent <- weekly_recent %>%
@@ -98,9 +121,10 @@ composite_group <- weekly_recent |>
   summarize(`Total Sessions` = n(),
             `Total Punctuality Instances` = round(sum(ifelse(Punctuality != "On Time", 1, 0)),2),
             `Yes Sub Requests` = round(sum(`Sub?` == "Yes"),2),
-            `Punctuality Score` = round(mean(Punctuality.Score),2),
+            `Punctuality Unweighted` = round(mean(Punctuality.Score), 2),
+            `Punctuality Score` = round(mean(punctuality.weighted),2),
             `Sub Score` = round(10*((`Total Sessions` - `Yes Sub Requests`)/(`Total Sessions`)),2),
-            `Composite Score` = round(((`Punctuality Score`*0.2) + (`Sub Score`*0.8)),2)
+            `Composite Score` = round(((`Punctuality Score`*0.5) + (`Sub Score`*0.5)),2)
 ) |>
     mutate(`Sessions Quartile` = ntile(`Total Sessions`, 4))  # Assign quintiles based on total sessions
 
@@ -134,7 +158,10 @@ composite_group_clean <- composite_flat |>
   filter(`Regular Instructor` != "Sub Needed (Searching)" & `Regular Instructor` != "Searching")
 
 composite_group_clean <- composite_group_clean |>
-  select(`Regular Instructor`, `Composite Score`, `Punctuality Score`, `Sub Score`, `Total Sessions`, `Sessions Quartile`)
+  select(`Regular Instructor`, `Composite Score`, `Punctuality Unweighted`, `Punctuality Score`, `Sub Score`, `Total Sessions`, `Sessions Quartile`) |>
+  mutate(`Composite Score` = ifelse(`Composite Score` < 0, 0, `Composite Score`))
+
+View(composite_group_clean)
 ```
 
 ```{r, echo=FALSE}
@@ -146,4 +173,114 @@ scorecard_html <- reactable(composite_group_clean,
                    highlight = TRUE)
 
 scorecard_html
+```
+
+```{r, message=FALSE,echo=FALSE, warning=FALSE}
+issue_providers <- weekly_recent |>
+  filter(Punctuality != "On Time") |>
+  group_by(`Regular Instructor`, Partner) |>
+  summarize(Punctuality_offenses = n()) |>
+  filter(Punctuality_offenses != 1)
+
+View(issue_providers)
+```
+
+```{r, message=FALSE,echo=FALSE, warning=FALSE}
+oncall_subset <- weekly_recent |>
+  filter(Instructor %in% c("Joanna Cosentino", "Mary Rubi", "Tyreel Simpson", "Victoria Beaton", "Theo Frorer") & Instructor != `Regular Instructor`)
+
+View(oncall_subset)
+```
+
+```{r, message=FALSE,echo=FALSE, warning=FALSE}
+sub_subset <- weekly_recent |>
+  filter(`Sub?` == "Yes")
+
+provider_not_cancelled <- sub_subset |>
+  filter(Punctuality != "Provider Cancelled")
+
+provider_cancelled <- sub_subset |>
+  filter(Punctuality == "Provider Cancelled")
+
+count(provider_not_cancelled)
+count(provider_cancelled)
+
+View(provider_cancelled)
+write.csv(provider_cancelled, "/Users/jackholland/Downloads/Togetherhood CSVs/Unfulfilled Sub Requests.csv")
+```
+
+```{r, message=FALSE,echo=FALSE, warning=FALSE}
+unique(sub_subset$Punctuality)
+```
+```{r, message=FALSE,echo=FALSE, warning=FALSE}
+mean_score <- mean(composite_group_clean$`Composite Score`, na.rm = TRUE)
+
+ggplot(composite_group_clean, aes(x = reorder(`Regular Instructor`, -`Composite Score`), y = `Composite Score`, fill = `Composite Score`)) +
+  geom_bar(stat = "identity") +
+  geom_hline(yintercept = mean_score, linetype = "dashed", color = "red") +
+  scale_fill_gradient(low = "lightblue", high = "steelblue4") +
+  labs(x = "Regular Instructor", y = "Comp Score", title = "Composite Score Histogram (w/ Penalty)") +
+  theme(axis.text.x = element_blank()) +
+  annotate("text", x = length(unique(composite_group_clean$`Regular Instructor`))/2, y = mean_score, 
+           label = paste("Mean:", round(mean_score, 3)), vjust = -3, color = "red") +
+  coord_cartesian(ylim = c(min(composite_group_clean$`Composite Score`), max(composite_group_clean$`Composite Score`)))
+```
+
+```{r, message=FALSE,echo=FALSE, warning=FALSE}
+biggest_discrepancies <- composite_group_clean |>
+  mutate(Penalty = `Punctuality Score` - `Punctuality Unweighted`) |>
+  arrange(Penalty)
+
+View(biggest_discrepancies)
+write.csv(biggest_discrepancies, "/Users/jackholland/Downloads/Togetherhood CSVs/Effect of Grouping Penalty.csv")
+```
+
+```{r, message=FALSE,echo=FALSE, warning=FALSE}
+composite_group_old <- weekly_recent |>
+    mutate(`Regular Instructor` = case_when(
+      `Regular Instructor` == "Amaia Gomez Marzabal" ~ "Amaia Gomez-Marsabal",
+      `Regular Instructor` == "Cain (Eryn) Pickens" ~ "Cain Pickens",
+      `Regular Instructor` == "Juliette & Ellas Play Date" ~ "Juliette & Ella's Playdate",
+      `Regular Instructor` == "Julius Elegio" ~ "Julius Elegido",
+      TRUE ~ `Regular Instructor`  # Keep other names unchanged
+    )) |>
+  group_by(`Regular Instructor`) |>
+  summarize(`Total Sessions` = n(),
+            `Total Punctuality Instances` = round(sum(ifelse(Punctuality != "On Time", 1, 0)),2),
+            `Yes Sub Requests` = round(sum(`Sub?` == "Yes"),2),
+            `Punctuality Unweighted` = round(mean(Punctuality.Score), 2),
+            `Punctuality Score` = round(mean(punctuality.weighted),2),
+            `Sub Score` = round(10*((`Total Sessions` - `Yes Sub Requests`)/(`Total Sessions`)),2),
+            `Composite Score` = round(((`Punctuality Unweighted`*0.5) + (`Sub Score`*0.5)),2)
+) |>
+    mutate(`Sessions Quartile` = ntile(`Total Sessions`, 4))  # Assign quintiles based on total sessions
+
+composite_old_flat <- composite_group_old |>
+  mutate(`Regular Instructor` = case_when(
+      `Regular Instructor` == "Amaia Gomez Marzabal" ~ "Amaia Gomez-Marsabal",
+      `Regular Instructor` == "Cain (Eryn) Pickens" ~ "Cain Pickens",
+      `Regular Instructor` == "Juliette & Ellas Play Date" ~ "Juliette & Ella's Playdate",
+      `Regular Instructor` == "Julius Elegio" ~ "Julius Elegido",
+      TRUE ~ `Regular Instructor`  # Keep other names unchanged
+    ))
+
+composite_old_clean <- composite_old_flat |>
+  filter(`Regular Instructor` != "Sub Needed (Searching)" & `Regular Instructor` != "Searching")
+
+composite_old_clean <- composite_old_clean |>
+  select(`Regular Instructor`, `Composite Score`, `Punctuality Unweighted`, `Punctuality Score`, `Sub Score`, `Total Sessions`, `Sessions Quartile`) |>
+  mutate(`Composite Score` = ifelse(`Composite Score` < 0, 0, `Composite Score`))
+```
+
+```{r, message=FALSE,echo=FALSE, warning=FALSE}
+mean_score_old <- mean(composite_group_old$`Composite Score`, na.rm = TRUE)
+
+ggplot(composite_group_old, aes(x = reorder(`Regular Instructor`, -`Composite Score`), y = `Composite Score`, fill = `Composite Score`)) +
+  geom_bar(stat = "identity") +  # Add the bar layer
+  geom_hline(yintercept = mean_score_old, linetype = "dashed", color = "red") +
+  scale_fill_gradient(low = "lightblue", high = "steelblue4") +
+  labs(x = "Regular Instructor", y = "Comp Score", title = "Composite Score Histogram (Punctuality Unweighted)") +
+  theme(axis.text.x = element_blank()) +
+  annotate("text", x = length(unique(composite_group_old$`Regular Instructor`))/2, y = mean_score_old, 
+           label = paste("Mean:", round(mean_score_old, 3)), vjust = -3, color = "red")
 ```
